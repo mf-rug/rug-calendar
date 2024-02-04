@@ -3,8 +3,109 @@ library(DT)
 library(calendar)
 library(tidyverse)
 library(lubridate)
+library(jsonlite)
+library(httr)
+library(shinyWidgets)
 
+hrs <- hr(style = "margin-top: 2px; margin-bottom: 15px;")
+hrc <- HTML('<hr style="height:2px;border-width:0;background-color:#08313e;margin-top: 0px; margin-bottom: 0px;">')
 ui <- fluidPage(
-  shiny::fileInput('file', 'Select .ical file', multiple = FALSE, accept = '.ics'),
-  DT::DTOutput('table')
+  tags$head(tags$link(rel = "shortcut icon", href = "favicon.ico", type = "image/x-icon")),
+  tags$head(
+    tags$style(HTML("
+      .shiny-input-radiogroup .radio { margin-top: 2px; margin-bottom:4px; }
+    "))
+  ),
+  tags$head(tags$style(
+    HTML('
+         #sidebar {
+            color: #eff6f7;
+            background-color: #08313e;
+        }
+
+        body, label, input, button, select { 
+          font-family: "Arial";
+        }')
+  )),
+  setBackgroundColor(
+    color = c("#f6f6f6",'#e7edef'),
+    gradient = "linear",
+    direction = "bottom",
+    shinydashboard = FALSE
+  ),
+  shinyjs::useShinyjs(),
+  div(style = "display: flex; justify-content: space-between;",
+      div(
+        div(style = "margin-top: 5px; margin-bottom: 0px; color: black; font-size:25px", 
+            HTML('University of Groningen - RoostR'),
+        ),
+        div(style="margin-top: -4px; margin-bottom: 4px; color:grey; font-size:12px",
+            HTML('&nbspA customizable alternative to <a href ="https://rooster.rug.nl/">https://rooster.rug.nl/</a>'),
+            )
+      ),
+      div(style = "margin-top: 15px; margin-bottom: 5px; color: grey; font-size:11px", 
+          div('Developed by Max Fürst'),
+          div(HTML('<a href ="https://www.fuerstlab.com/">www.fuerstlab.com</a>'))
+      )
+  ),hrc,
+  sidebarLayout(
+    sidebarPanel(width = 3,id="sidebar", style='height: 90vh',
+      fluidRow(
+       column(12,
+              HTML('<strong>Select output</strong>'), hrs,
+              radioButtons('output', label = NULL, selected = 'Courses', choices = c('Courses', 'Programs'), width='100%', inline = TRUE)
+       )
+      ), 
+      fluidRow(
+        column(12,
+               HTML('<strong>Select academic year</strong>'), hrs,
+               shinyjs::disabled(selectInput('years', NULL, choices = NULL, width='100%'))
+        )
+      ), br(),
+      fluidRow(
+        column(12,
+               HTML('<strong>Select course(s)</strong>'), hrs,
+               shinyjs::disabled(selectizeInput('courses', NULL, NULL, multiple = TRUE, width='100%'))
+        )
+      ), br(),
+      shinyjs::hidden(
+        div(id = 'hideme', 
+            fluidRow(
+              column(12,
+                   HTML('<strong>Customize appearance</strong>'), 
+                   hrs)
+              ),
+            fluidRow(
+              column(5,checkboxInput('colorby', 'Color rows by', TRUE)),
+              column(4, selectInput('colorselection', NULL, NULL)),
+              column(3, radioButtons('gradient', NULL, c('gradient', 'shuffle'))),
+            ), br(),
+            fluidRow(
+              column(5,checkboxInput('highlightby', 'Additionally highlight', TRUE)),
+              column(4, selectInput('fcolorselection', NULL, NULL)),
+              column(3, radioButtons('fgradient', NULL, c('gradient', 'shuffle'))),
+            ),br(),
+            fluidRow(
+              column(5, checkboxInput('seprows', 'Separate', width = '100%', value = TRUE)),
+              column(4, selectInput('sepsel', NULL, c('days', 'weeks', 'months'), selected = 'weeks'))
+            ), br(),
+            fluidRow(
+              column(12, checkboxInput('unique', 'Group parallel events if identical except location', width = '100%'))
+            ), br(),
+            fluidRow(
+              column(12, checkboxInput('unique2', 'Group parallel events if only course is unique', width = '100%'))
+            ), br(),
+            fluidRow(
+              column(12, checkboxInput('allcols', 'Show all columns', width = '100%'))
+            ), br()
+          )
+      )
+    ),
+    mainPanel(
+      br(),
+      div(style='max-width:90vw', 
+        DT::DTOutput('table')
+      )
+    )
+  )
 )
