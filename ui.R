@@ -13,6 +13,13 @@ ui <- fluidPage(
   tags$head(tags$link(rel = "shortcut icon", href = "favicon.ico", type = "image/x-icon")),
   tags$head(
     tags$style(HTML("
+      #sidebar {
+        overflow-y: scroll;
+        min-height:88vh;
+        max-height: 88vh;
+      }
+    ")),
+    tags$style(HTML("
       .shiny-input-radiogroup .radio { margin-top: 2px; margin-bottom:4px; }
     "))
   ),
@@ -49,7 +56,7 @@ ui <- fluidPage(
       )
   ),hrc,
   sidebarLayout(
-    sidebarPanel(width = 3,id="sidebar", style='height: 90vh',
+    sidebarPanel(width = 3,id="sidebar",
       fluidRow(
        column(12,
               HTML('<strong>Select output</strong>'), hrs,
@@ -79,25 +86,45 @@ ui <- fluidPage(
               column(5,checkboxInput('colorby', 'Color rows by', TRUE)),
               column(4, selectInput('colorselection', NULL, NULL)),
               column(3, radioButtons('gradient', NULL, c('gradient', 'shuffle'))),
-            ), br(),
+            ),
             fluidRow(
               column(5,checkboxInput('highlightby', 'Additionally highlight', TRUE)),
               column(4, selectInput('fcolorselection', NULL, NULL)),
               column(3, radioButtons('fgradient', NULL, c('gradient', 'shuffle'))),
-            ),br(),
+            ),
             fluidRow(
               column(5, checkboxInput('seprows', 'Separate', width = '100%', value = TRUE)),
               column(4, selectInput('sepsel', NULL, c('days', 'weeks', 'months'), selected = 'weeks'))
-            ), br(),
+            ),
+            fluidRow(
+              column(12,
+                     virtualSelectInput(
+                        inputId = "col_selection",
+                        label = "Add/remove columns :",
+                        choices = NULL,
+                        multiple = TRUE,
+                        width = "100%",
+                        dropboxWrapper = "body"
+                      ))
+              ), 
+            fluidRow(
+              # column(12, checkboxInput('hl_past', 'Grey shade past events', width = '100%'))
+              column(12, radioButtons('hl_past', label = 'Past events', selected = 'grey', choices = c('show', 'grey', 'hide'), width='100%', inline = TRUE))
+            ), 
             fluidRow(
               column(12, checkboxInput('unique', 'Group parallel events if identical except location', width = '100%'))
-            ), br(),
+            ), 
             fluidRow(
               column(12, checkboxInput('unique2', 'Group parallel events if only course is unique', width = '100%'))
-            ), br(),
+            ), 
             fluidRow(
-              column(12, checkboxInput('allcols', 'Show all columns', width = '100%'))
-            ), br()
+              column(12,
+                     HTML('<strong>Export</strong>'), 
+                     hrs)
+            ),
+            fluidRow(
+              column(12, downloadButton("downloadImage", "Download Table as Image"))
+            )
           )
       )
     ),

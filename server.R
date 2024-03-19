@@ -81,7 +81,7 @@ get_academic_year <- function() {
 
 pull_courses <- function(year) {
   course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year)), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
-  course.df$name$nl <- str_extract(course.df$name$nl, '[^\\s].*$')
+  course.df$name$nl <- str_remove_all(trimws(course.df$name$nl), '[\r\n]')
   course.df <- course.df[!is.na(course.df$name$en) & !is.na(course.df$name$nl),]
   course.df$name_code <- paste0(course.df$name$nl, ' - ', course.df$code)
   courses <- course.df$name_code[course.df$name$nl != ''] %>% unlist() %>% as.character()
@@ -99,137 +99,143 @@ pull_progs <- function(year) {
 
 parse_course_df <- function(input, all_course_codes, year, course_names, cur_sepsel) {
   full_df <- data.frame()
+ #print('starting parse_course_df')
   for (i in seq_along(all_course_codes)) {
-    course <- all_course_codes[i]
-    if (input$output == 'Courses') {
-      url <- paste0('https://rooster.rug.nl/api/v2/', year, '/activity/by/course/', course)
-    } else {
-      url <- paste0('https://rooster.rug.nl/api/v2/', year, '/activity/by/programme/', URLencode(course), '?onlyPublished=true')
-    }
-    if (is.na(course) || is.na(year)) {
-      full_df <- data.frame(id = 0, course = input$courses[i], error = '<i><font style="color:red">invalid course</font></i>')
-      next
-    } else {
-      response <- GET(url)
-      
-      # Check if the request was successful
-      if (http_status(response)$category == "Success") {
-        # Extract content from the response
-        content_data <- content(response, "text", encoding = "UTF-8")
-        
-        if (content_data ==  '[]') {
-          if (!exists('full_df')) {
-            full_df <- data.frame()
-          }
-          full_df <- bind_rows(full_df, data.frame(id = 0, course = input$courses[i], error = paste0('<i><font style="color:red">no activities (no data from </font>',
-                                                                                             '<a href="', url, '" target="_blank">this url</a></i><i><font style="color:red">)</font></i>')))
-          next
-        }
-        # Convert JSON content to a data.frame
-        df <- fromJSON(content_data)
-        
-        df <- df[, !(sapply(df, is_all_empty) | sapply(df, is_all_emptylist))]
-        
-        df <- reduce(.x = c("courses", "name", "activityType", "activityType;name", "locationUnits", "staff", "staff;name", "locationUnits;name"), 
-                     .f = unnest_if_exists, 
-                     .init = df)
-        
-        # Apply the functions to each column and subset the data frame
-        df <- df[, !(sapply(df, is_all_empty) | sapply(df, is_all_emptylist))]
-        df <-  df[!duplicated(as.list(df))]
-        
-        if ("locationUnits;url" %in% colnames(df)) {
-          df$location <- paste('<a href="', df$`locationUnits;url`, '" target="_blank">', df$`locationUnits;name;nl`, '</a>', sep = "")
-        }
-        
-        df <- df %>%
-          mutate(start = as.character(start)) %>% 
-          mutate(end = as.character(end))
-        
-        df <- df %>%
-          mutate(date = format(ymd_hm(str_replace_all(start, ",", " ")), "%d %b %Y")) %>%
-          mutate(`start time` = format(ymd_hm(str_replace_all(start, ",", " ")), "%H:%M")) %>%
-          mutate(`end time` = format(ymd_hm(str_replace_all(end, ",", " ")), "%H:%M"))
-        
-        old_names <- c('activityType;name;en', 'recordingMode', 'staff;name;en', 'locationUnits;capacity', 'courses;code', 'courses;facultyCode', 'staff;concept', 'plannedSize', 'name;nl', 'courses;concept', 'academicYear')
-        new_names <- c('type',                'recording',      'staff name',    'capacity',                'course code',   'faculty',             'staff concept',  'size',        'info',    'course concept', 'academic year')
-        colnames(df) <- stringi::stri_replace_all_fixed(colnames(df), old_names, new_names, vectorize_all = FALSE)
-        df$course <- course_names[i]
-        df$info <- df$info %>% str_remove(., '^ | $') %>% stringr::str_squish()
-        df$info <- str_remove(df$info, fixed(df$course))
-        df <- df[, !(sapply(df, is_all_empty))]
-        
-        df$`course code` <- paste0('<a href="https://ocasys.rug.nl/', df$`academic year`, '/catalog/course/', df$`course code`, '" target="_blank">', df$`course code`, '</a>', sep = "")
-        df$day <- df$date %>% as.Date(format = '%d %b %Y') %>% weekdays(abbreviate = TRUE)
-        df$week <- strftime(as.Date(df$date, format = '%d %b %Y'), "%V") %>% as.numeric()
-        
-        df <- df[, !(sapply(df, is_all_na))]
-        
-        df <- df[, !(names(df) %in% c('id', 'hostKey', 'activityIndex', 'staff;code', 'courses;link', 'staff;facultyCode', 'activityType;name;nl', 'activityType;info', 'activityType;course', 'activityName', 'activityType;syllabusName', 'capacity', 'locationUnits;code', 'locationUnits;info', 'locationUnits;course', 'locationUnits;allocation', "locationUnits;name;en", "locationUnits;address", "locationUnits;seats", "locationUnits;hidden", 'activityTypeCategory', 'locationUnits;avoidConcurrency', 'locationUnits;avoidConcurrency;name', 'locationUnits;name;nl', 'locationUnits;url', 'courses;name'))]
-        df$id <- rownames(df) %>% as.numeric()
-        
-        courseInfo <- grep(x = colnames(df), pattern = 'info', value = T)
-        
-        
-        # Create a temporary DataFrame excluding the column to ignore
-        temp_df <- df[, !(names(df) %in% c('id', 'course code'))]
-        
-        # Find duplicated rows (excluding the first occurrence)
-        duplicated_rows <- duplicated(temp_df)
-        
-        # Remove duplicated rows from the original DataFrame
-        df <- df[!duplicated_rows, ]
-        
-        if (input$unique) {
-          # Create a temporary DataFrame excluding the column to ignore
-          temp_df <- df[, !(names(df) %in% c('id', 'location', 'course code', 'size'))]
-          
-          # Find duplicated rows (excluding the first occurrence)
-          duplicated_rows <- duplicated(temp_df)
-          
-          rle_vec <- rle(duplicated_rows)
-          rle_vec <- rep(rle_vec$lengths, times=rle_vec$lengths)
-          rle_vec[duplicated_rows == FALSE] <- 0
-          rle_vec[which(rle_vec != 0) -1] <- rle_vec[which(rle_vec != 0)]
-          rle_vec <- rle_vec +1
-          df$`parallel sessions` <- rle_vec
-          
-          # Remove duplicated rows from the original DataFrame
-          df <- df[!duplicated_rows, ]
-          
-          
-        } 
-        if (input$unique2) {
-          # Create a temporary DataFrame excluding the column to ignore
-          temp_df <- df[, c('course code')]
-          
-          # Find duplicated rows (excluding the first occurrence)
-          duplicated_rows <- duplicated(temp_df)
-          
-          rle_vec <- rle(duplicated_rows)
-          rle_vec <- rep(rle_vec$lengths, times=rle_vec$lengths)
-          rle_vec[duplicated_rows == FALSE] <- 0
-          rle_vec[which(rle_vec != 0) -1] <- rle_vec[which(rle_vec != 0)]
-          rle_vec <- rle_vec +1
-          df$`parallel sessions` <- rle_vec
-          
-          # Remove duplicated rows from the original DataFrame
-          df <- df[!duplicated_rows, ]
-          
-        }
-        firstcols <- c('id', 'week', 'day', 'date', 'start time', 'end time', 'course code', 'course', courseInfo, 'type', 'location', 'parallel sessions', 'staff name', 'academic year')
-        firstcols <- firstcols[firstcols %in% colnames(df)]
-        firstcols_ext <- c(firstcols, 'end', 'start')
-        
-        df <- df[c(firstcols, names(df)[!names(df) %in% firstcols_ext])]
-        full_df <- bind_rows(full_df, df)
+    # if (!input$seprows || cur_sepsel != '') {
+      course <- all_course_codes[i]
+     #print(paste('... confirmed for course ', course))
+      if (input$output == 'Courses') {
+        url <- paste0('https://rooster.rug.nl/api/v2/', year, '/activity/by/course/', course)
+      } else {
+        url <- paste0('https://rooster.rug.nl/api/v2/', year, '/activity/by/programme/', URLencode(course), '?onlyPublished=true')
       }
-    }
+      if (is.na(course) || is.na(year)) {
+        full_df <- data.frame(id = 0, course = input$courses[i], error = '<i><font style="color:red">invalid course</font></i>')
+        next
+      } else {
+        response <- GET(url)
+        
+        # Check if the request was successful
+        if (http_status(response)$category == "Success") {
+          # Extract content from the response
+          content_data <- content(response, "text", encoding = "UTF-8")
+          
+          if (content_data ==  '[]') {
+            if (!exists('full_df')) {
+              full_df <- data.frame()
+            }
+            full_df <- bind_rows(full_df, data.frame(id = 0, course = input$courses[i], error = paste0('<i><font style="color:red">no activities (no data from </font>',
+                                                                                               '<a href="', url, '" target="_blank">this url</a></i><i><font style="color:red">)</font></i>')))
+            next
+          }
+          # Convert JSON content to a data.frame
+          df <- fromJSON(content_data)
+          
+          df <- df[, !(sapply(df, is_all_empty) | sapply(df, is_all_emptylist))]
+          df <- reduce(.x = c("courses", "name", "activityType", "activityType;name", "locationUnits", "staff", "staff;name", "locationUnits;name"), 
+                       .f = unnest_if_exists, 
+                       .init = df)
+          
+          # Apply the functions to each column and subset the data frame
+          df <- df[, !(sapply(df, is_all_empty) | sapply(df, is_all_emptylist))]
+          df <-  df[!duplicated(as.list(df))]
+  
+          if ("locationUnits;url" %in% colnames(df)) {
+            df$location <- paste('<a href="', df$`locationUnits;url`, '" target="_blank">', df$`locationUnits;name;nl`, '</a>', sep = "")
+          }
+          
+          df <- df %>%
+            mutate(start = as.character(start)) %>% 
+            mutate(end = as.character(end))
+          
+          df <- df %>%
+            mutate(date = format(ymd_hm(str_replace_all(start, ",", " ")), "%d %b %Y")) %>%
+            mutate(`start time` = format(ymd_hm(str_replace_all(start, ",", " ")), "%H:%M")) %>%
+            mutate(`end time` = format(ymd_hm(str_replace_all(end, ",", " ")), "%H:%M"))
+          
+          old_names <- c('activityType;name;en', 'recordingMode', 'staff;name;en', 'locationUnits;capacity', 'courses;code', 'courses;facultyCode', 'staff;concept', 'plannedSize', 'name;nl', 'courses;concept', 'academicYear')
+          new_names <- c('type',                'recording',      'staff name',    'capacity',                'course code', 'faculty',             'staff concept', 'size',        'info',    'course concept',  'academic year')
+          colnames(df) <- stringi::stri_replace_all_fixed(colnames(df), old_names, new_names, vectorize_all = FALSE)
+          df$course <- course_names[i]
+          df$info <- df$info %>% str_remove(., '^ | $') %>% stringr::str_squish()
+          df$info <- str_remove(df$info, fixed(df$course))
+          df <- df[, !(sapply(df, is_all_empty))]
+  
+          df$`course code` <- paste0('<a href="https://ocasys.rug.nl/', df$`academic year`, '/catalog/course/', df$`course code`, '" target="_blank">', df$`course code`, '</a>', sep = "")
+          df$day <- df$date %>% as.Date(format = '%d %b %Y') %>% weekdays(abbreviate = TRUE)
+          df$week <- strftime(as.Date(df$date, format = '%d %b %Y'), "%V") %>% as.numeric()
+          
+          df <- df[, !(sapply(df, is_all_na))]
+          
+          df <- df[, !(names(df) %in% c('id', 'hostKey', 'activityIndex', 'staff;code', 'courses;link', 'staff;facultyCode', 'activityType;name;nl', 'activityType;info', 'activityType;course', 'activityName', 'activityType;syllabusName', 'capacity', 'locationUnits;code', 'locationUnits;info', 'locationUnits;course', 'locationUnits;allocation', "locationUnits;name;en", "locationUnits;address", "locationUnits;seats", "locationUnits;hidden", 'activityTypeCategory', 'locationUnits;avoidConcurrency', 'locationUnits;avoidConcurrency;name', 'locationUnits;name;nl', 'locationUnits;url', 'courses;name'))]
+          df$id <- rownames(df) %>% as.numeric()
+          
+          courseInfo <- grep(x = colnames(df), pattern = 'info', value = T)
+          
+  
+          # Create a temporary DataFrame excluding the column to ignore
+          temp_df <- df[, !(names(df) %in% c('id', 'course code'))]
+          
+          # Find duplicated rows (excluding the first occurrence)
+          duplicated_rows <- duplicated(temp_df)
+          
+          # Remove duplicated rows from the original DataFrame
+          df <- df[!duplicated_rows, ]
+          
+          if (input$unique) {
+            # Create a temporary DataFrame excluding the column to ignore
+            temp_df <- df[, !(names(df) %in% c('id', 'location', 'course code', 'size'))]
+            
+            # Find duplicated rows (excluding the first occurrence)
+            duplicated_rows <- duplicated(temp_df)
+            
+            rle_vec <- rle(duplicated_rows)
+            rle_vec <- rep(rle_vec$lengths, times=rle_vec$lengths)
+            rle_vec[duplicated_rows == FALSE] <- 0
+            rle_vec[which(rle_vec != 0) -1] <- rle_vec[which(rle_vec != 0)]
+            rle_vec <- rle_vec +1
+            df$`parallel sessions` <- rle_vec
+            
+            # Remove duplicated rows from the original DataFrame
+            df <- df[!duplicated_rows, ]
+            
+          } 
+          if (input$unique2) {
+            # Create a temporary DataFrame excluding the column to ignore
+            temp_df <- df[, c('course code')]
+            
+            # Find duplicated rows (excluding the first occurrence)
+            duplicated_rows <- duplicated(temp_df)
+            
+            rle_vec <- rle(duplicated_rows)
+            rle_vec <- rep(rle_vec$lengths, times=rle_vec$lengths)
+            rle_vec[duplicated_rows == FALSE] <- 0
+            rle_vec[which(rle_vec != 0) -1] <- rle_vec[which(rle_vec != 0)]
+            rle_vec <- rle_vec +1
+            df$`parallel sessions` <- rle_vec
+            
+            # Remove duplicated rows from the original DataFrame
+            df <- df[!duplicated_rows, ]
+            
+          }
+          
+          firstcols <- c('id', 'week', 'day', 'date', 'start time', 'end time', 'course code', 'course', courseInfo, 'type', 'location', 'parallel sessions', 'staff name', 'academic year')
+          firstcols <- firstcols[firstcols %in% colnames(df)]
+          firstcols_ext <- c(firstcols, 'end', 'start')
+          
+          df <- df[c(firstcols, names(df)[!names(df) %in% firstcols_ext])]
+          full_df <- bind_rows(full_df, df)
+        }
+      }
+    # }
   }
-  if (!identical(colnames(full_df), c("id", "course", "error"))) {
+  if (!identical(colnames(full_df), c("id", "course", "error")) && nrow(full_df) > 0) {
+    # if (!input$seprows || cur_sepsel != '') {
+      
     if ('date' %in% colnames(full_df)) {
       full_df <- full_df[order(full_df$date %>% as.Date(format = '%d %b %Y')),]
     }
+    # browser()
     if (input$seprows) {
       full_df[is.na(full_df)] <- ''
       # add break points
@@ -240,57 +246,99 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
       } else {
         change_points <- c(TRUE, diff(as.Date(full_df$date, format = "%d %b %Y") %>% format("%m") %>% as.numeric()) != 0)
       }
-      change_points[is.na(change_points)] <- FALSE
       
+      change_points[is.na(change_points)] <- FALSE
       empty_row <- full_df[1, ]
       empty_row[] <- NA
       
       result_df <- full_df[0, ]
+      # browser()
       
-      for (i in 1:nrow(full_df)) {
+      for (i in seq_len(nrow(full_df))) {
         if (change_points[i]) {
           result_df <- rbind(result_df, empty_row, full_df[i, ])
         } else {
           result_df <- rbind(result_df, full_df[i, ])
         }
       }
+      # browser()
+      
       # Reset row names
-      if (cur_sepsel == 'days') {
-        result_df[is.na(result_df$course), 'date'] <- result_df[which(is.na(result_df$course)) + 1, 'date']
-      } else if (cur_sepsel == 'weeks') {
-        result_df[is.na(result_df$course), 'week'] <- result_df[which(is.na(result_df$course)) + 1, 'week']
-      } else {
-        result_df[is.na(result_df$course), 'date'] <- paste0('<font style="color:black">', result_df[which(is.na(result_df$course)) + 1, 'date'], '</font>') %>% str_replace(., ' ([A-Z][a-z][a-z]) ', ' <font style=\"color:white\">\\1<font style=\"color:black\"> ')
+      if (cur_sepsel != '') {
+        if (cur_sepsel == 'days') {
+          result_df[is.na(result_df$course), 'date'] <- result_df[which(is.na(result_df$course)) + 1, 'date']
+        } else if (cur_sepsel == 'weeks') {
+          result_df[is.na(result_df$course), 'week'] <- result_df[which(is.na(result_df$course)) + 1, 'week']
+        } else {
+          result_df[is.na(result_df$course), 'date'] <- paste0('<font style="color:black">', result_df[which(is.na(result_df$course)) + 1, 'date'], '</font>') %>% str_replace(., ' ([A-Z][a-z][a-z]) ', ' <font style=\"color:white\">\\1<font style=\"color:black\"> ')
+        }
       }
+      if (input$hl_past == 'grey' && 'date' %in% colnames(result_df)) {
+        past_events <- as.Date(result_df[!is.na(result_df$course), 'date'], format = '%d %b %Y') < Sys.Date()
+        result_df[!is.na(result_df$course), 'day'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'day'][past_events], '</font>')
+        result_df[!is.na(result_df$course), 'date'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'date'][past_events], '</font>')
+      } else if (input$hl_past == 'hide' && 'date' %in% colnames(result_df)) {
+        # browser()
+        # last_event_line <- max(which(as.Date(result_df[, 'date'], format = '%d %b %Y') < Sys.Date() & !is.na(result_df[, 'date'])))
+        # browser()
+        # last_event_line <- max(which(is.na(result_df[, 'date']))[which(is.na(result_df[, 'date'])) < last_event_line])
+        # result_df <- result_df[last_event_line:nrow(result_df),]
+        cur_week <- strftime(Sys.Date(), "%V") %>% as.numeric()
+        cur_year <- strftime(Sys.Date(), "%Y") %>% as.numeric()
+        result_df <- result_df[result_df$week >= cur_week, ]
+        result_df <- result_df[strftime(as.Date(result_df$date, format = '%d %b %Y'), '%Y') %>% as.numeric() >= cur_year, ]
+        # # remove additional NAs on top
+        # potential_start <- min(which(!is.na(test$week))) -1
+        # if 
+      }
+        
       rownames(result_df) <- NULL
       full_df <- result_df
+      #print(paste('parsed course at stage result_df now df of size', ncol(full_df), 'x', nrow(full_df)))
       cal_url <- paste0('https://www.rug.nl/feb/education/academic-calendar/', year, '-academic-calendar.pdf')
+      # browser()
       if (http_status(HEAD(cal_url))$category == "Success") {
         full_df[!is.na(full_df$week),'week'] <- paste0('<a href="', cal_url, '" target="_blank">', full_df[!is.na(full_df$week),'week'], '</a>')
       }
-      
+
       full_df[!is.na(full_df$course), 'id'] <- 1:nrow(full_df[!is.na(full_df$course),])
       full_df[which(is.na(full_df$course)), 'id'] <- full_df[which(is.na(full_df$course)) + 1, 'id'] %>% as.numeric() - 0.1
+      full_df <- full_df[!is.na(full_df$id),]
+      
+      cols <- colnames(df)[colnames(full_df) != 'id']
+      updateVirtualSelect('col_selection', choices = cols, selected = firstcols[firstcols != 'academic year'])
       
     } else {
       full_df$id <- 1:nrow(full_df)
     }
-    if (!input$allcols) {
-      full_df <- full_df[, firstcols[firstcols != 'academic year']]
+    #print("firstcols")
+    # if (!input$allcols) {
+    #   full_df <- full_df[, firstcols[firstcols != 'academic year']]
+    # }
+    # print("firstcols2")
+    #print(paste('parsed course at final stage now df of size', ncol(full_df), 'x', nrow(full_df)))
+    
     }
-  }
-  # fdf <<- full_df
+  # }
+  fdf <<- full_df
+  # full_df <- bfdf[0,]
+  #print(paste('parsed course done. returning df of size', ncol(full_df), 'x', nrow(full_df)))
   full_df
 }
 
 
-vals_and_cols_to_style <- function(df, colorselection, gradient, fcolorselection, fgradient) {
+vals_and_cols_to_style <- function(df, colorselection, gradient, fcolnecessary, fcolorselection, fgradient) {
   bvals <- unique(df[,colorselection]) %>% as.vector() %>% unlist()
   bvals <- bvals[!is.na(bvals)]
   bcols <- get_colors_hcl(length(bvals), shuffle = gradient == 'shuffle')
-  fvals <- unique(df[,fcolorselection]) %>% as.vector() %>% unlist()
-  fvals <- fvals[!is.na(fvals)]
-  fcols <- get_colors_hcl(length(fvals), start=80,luminance = 100, shuffle = fgradient == 'shuffle')
+  if (fcolnecessary) {
+    fvals <- unique(df[,fcolorselection]) %>% as.vector() %>% unlist()
+    fvals <- fvals[!is.na(fvals)]
+    fcols <- get_colors_hcl(length(fvals), start=80,luminance = 100, shuffle = fgradient == 'shuffle')
+  } else {
+    fvals <- NULL
+    fcols <- NULL
+  }
   list(bvals = bvals, bcols = bcols, fvals = fvals, fcols = fcols)
 }
 
@@ -320,6 +368,7 @@ server <- function(input, output, session) {
     } else {
       updatefromURL(FALSE)
     }
+    #print(paste('updating color by choices:', paste(cols, collapse = ',')))
     updateSelectInput(session = getDefaultReactiveDomain(), inputId = 'colorselection', selected = cur_col_r(), choices = cols)
     updateSelectInput(session = getDefaultReactiveDomain(), inputId = 'fcolorselection', selected = cur_fcol_r(), choices = cols)
     updateSelectInput(session = getDefaultReactiveDomain(), inputId = 'sepsel', selected = cur_sepsel_r(), choices = c('days', 'weeks', 'months'))
@@ -434,7 +483,7 @@ server <- function(input, output, session) {
     if (is.null(colnames(df))) {
       if (is_valid(c(query$fcol, query$col))) {
         cur_col_r(query$col)
-        #print(paste('2 changed cur_col_r()', cur_col_r()))
+       #print(paste('2 changed cur_col_r()', cur_col_r()))
         cur_fcol_r(query$fcol)
         cur_year_r(query$year)
         cur_sepsel_r(query$sepsel)
@@ -449,7 +498,7 @@ server <- function(input, output, session) {
     updateCheckboxInput(session, 'allcols', value = as.logical(query$allcols))
     if (is_valid(c(query$fcol, query$col)) && query$col %in% cols && query$fcol %in% cols) {
       cur_col_r(query$col)
-      #print(paste('3 changed cur_col_r()', cur_col_r()))
+      # print(paste('3 changed cur_col_r()', cur_col_r()))
       cur_fcol_r(query$fcol)
       cur_year_r(query$year)
       cur_sepsel_r(query$sepsel)
@@ -477,7 +526,7 @@ server <- function(input, output, session) {
       if (!updatefromURL()) {
         if (input$colorby && is_valid(input$colorselection) && is_valid(input$fcolorselection) && input$colorselection %in% colnames(df_react()) && input$fcolorselection %in% colnames(df_react())) {
           cur_col_r(input$colorselection)
-          #print(paste('4 changed cur_col_r()', cur_col_r()))
+          # print(paste('4 changed cur_col_r()', cur_col_r()))
           cur_fcol_r(input$fcolorselection)
           cur_sepsel_r(input$sepsel)
           cur_year_r(input$years)
@@ -496,13 +545,27 @@ server <- function(input, output, session) {
     if (!is.null(colnames(df))) {
       shinyjs::show('hideme')
       cols <- colnames(df)[colnames(df) != 'id']
+      if (input$unique) {
+        cols <- c(cols, 'parallel sessions')
+      }
+     #print('get sens upon course input')
       get_sensible_sel(df, cols, updatefromURL(), forced = FALSE)
+      updateVirtualSelect('col_selection', choices = cols, selected = cols)
     }
   }, priority = 10)
   
   # get the data for the course(s) and process the data frame
   df_react <- reactive({
+    parsed_df <- NULL
+    
+    # if (is_valid(input$courses) && !is.null(course_df()[[1]]) && (!input$seprows || cur_sepsel_r() != '')) {
+      
     if (is_valid(input$courses) && !is.null(course_df()[[1]])) {
+     #print('---------')
+      # print(input$courses)
+      # print(nrow(course_df()[[1]]))
+      # print(input$years)
+      # print(cur_sepsel_r())
       all_course_codes <- lapply(str_split(input$courses, ' - '), function(x) rev(x)[1]) %>% unlist()
       df <- course_df()[[1]] %>% unnest(cols = 'name', names_sep = ';')
       course_names <- df[match(all_course_codes, df$code),"name;nl"] %>% as.vector() %>% unlist() %>% as.character() %>% str_remove(., '^ | $') %>% stringr::str_squish()
@@ -511,53 +574,84 @@ server <- function(input, output, session) {
       } else {
         selected_year <- input$years
       }
-      parse_course_df(input, all_course_codes,  selected_year, course_names, cur_sepsel_r())
+     #print('parsing df ...')
+      parsed_df <- parse_course_df(input, all_course_codes,  selected_year, course_names, cur_sepsel_r())
     }
+    parsed_df
   })
+   
   
   # style the output table
-  output$table <- renderDT({
+  isExporting <- reactiveVal(FALSE)
+  table_out <- reactive({
     trigger_trick <- c(input$colorselection, input$fcolorselection)
     df <- df_react()
-    if (!is.null(df) && is.data.frame(df) && nrow(df) > 0) {
+    if (!is.null(input$col_selection) && length(input$col_selection) != length(colnames(df)[colnames(df) != 'id']))  {
+      df <- df[, c('id', input$col_selection)]
+    }    
+    if (!is.null(df) && is.data.frame(df) && nrow(df) > 0 ) {
+      if (is.null(input$col_selection)) {
+        col_sel <- colnames(df)
+      } else {
+        col_sel <- input$col_selection
+      }
+     #print(paste('renderDT: cur_col_r()', cur_col_r(), 'cur_fcol_r()', cur_fcol_r(), 'input$col_selection', paste(input$col_selection, collapse = ',')))
+     #print(paste( !is.null(df) , is.data.frame(df) , nrow(df) > 0 , !is.null(input$col_selection)))
+      
         if (!identical(colnames(df), c("id", "course", "error"))) {
-          out <- datatable(df, escape = FALSE, rownames= FALSE, 
-                           options = list(pageLength = 50, lengthMenu = list(c(20, 50, 100, 200, -1), c('20', '50', '100', '200', 'All'))))
-          if (input$colorby) {
-            if (cur_col_r() == '' || !cur_col_r() %in% colnames(df) || !cur_fcol_r() %in% colnames(df)) {
-              #print('no good')
-              #print(c(cur_col_r() == '' , !cur_col_r() %in% colnames(df) , !cur_fcol_r() %in% colnames(df)))
-              #print(c(cur_col_r()  , cur_col_r() , cur_fcol_r() ))
-              columns <- colnames(df)[colnames(df) != 'id']
+          domOption <- if (isExporting()) "t" else "lfrtip" # "t" for export (table only), default "lfrtip" for display
+          out <- datatable(df, escape = FALSE, rownames= FALSE, class = 'compact',
+                           options = list(dom = domOption, pageLength = 50, lengthMenu = list(c(20, 50, 100, 200, -1), c('20', '50', '100', '200', 'All'))))
+          if (input$colorby && cur_col_r() %in% col_sel && ((input$highlightby && cur_fcol_r() %in% col_sel) || !input$highlightby)) {
+            if (cur_col_r() == '' || (input$colorby && !cur_col_r() %in% colnames(df)) || (input$highlightby && !cur_fcol_r() %in% colnames(df))) {
+             #print('get ssens')
+              columns <- col_sel
               get_sensible_sel(df, columns, updatefromURL())
             } 
-            vc <- vals_and_cols_to_style(df, cur_col_r(), input$gradient, cur_fcol_r(), input$fgradient)
-            # out <- out %>% formatStyle(cur_col_r(), target = 'row', backgroundColor = styleEqual(vc[['bvals']], vc[['bcols'
-            
-            # styling by row instead of styleEqual, because it somehow goes wrong for columns with HTML strings
-            # sep_rows <- str_detect(as.character(df$id), '\\.')
-            # rows_not_seperator <- seq_len(nrow(df))[!sep_rows]
-            # rows_uniq_vals <- match(df[[cur_col_r()]], vc[['bvals']])
-            # out <- out %>% formatStyle(cur_col_r(), target = 'row', backgroundColor = styleRow(rows_not_seperator,
-            #                                                                   vc[['bcols']][rows_uniq_vals][!sep_rows]))
+            vc <- vals_and_cols_to_style(df, cur_col_r(), input$gradient, input$highlightby, cur_fcol_r(), input$fgradient)
+
             out <- out %>% formatStyle(cur_col_r(), target = 'row', backgroundColor = styleEqual(as.list(vc[['bvals']]), vc[['bcols']]))
-            if (input$highlightby) {
-              # styling by row instead of styleEqual, because it somehow goes wrong for columns with HTML strings
-              # rows_uniq_vals <- match(df[[cur_fcol_r()]], vc[['fvals']])
-              # out <- out %>% formatStyle(cur_fcol_r(), backgroundColor = styleRow(rows_not_seperator,
-              #                                                                              vc[['fcols']][rows_uniq_vals][!sep_rows]))
+            if (input$highlightby && cur_fcol_r() %in% col_sel) {
               out <- out %>% formatStyle(cur_fcol_r(), backgroundColor = styleEqual(as.list(vc[['fvals']]), vc[['fcols']]))
             } 
           }
-          if (input$seprows && cur_fcol_r() != ''){ 
-            out <- out %>% formatStyle('course', target = 'row', color = styleEqual(NA, 'white'), backgroundColor = styleEqual(NA, 'black')) %>% 
-                           formatStyle(cur_fcol_r(), backgroundColor = styleEqual(NA, 'black')) %>% 
-                           formatStyle('id', color = 'black')
+          if (input$seprows && !is.na(cur_fcol_r()) && cur_fcol_r() != '') { 
+            out <- out %>% formatStyle('day', target = 'row', color = styleEqual(NA, 'white'), backgroundColor = styleEqual(NA, 'black')) %>% 
+              formatStyle('id', color = 'black')
+            if (input$highlightby && cur_fcol_r() %in% col_sel) {
+              out <- out %>% formatStyle(cur_fcol_r(), backgroundColor = styleEqual(NA, 'black'))
+            }
           }
         } else {
           out <- datatable(df, options = list(dom = 't'), escape = FALSE)
         }
       out
+    } else {
+     #print('didnt renderdt because')
+      # browser()
+     #print(paste('!is.null(df) , is.data.frame(df) , nrow(df) > 0 , !is.null(input$col_selection)'))
+     #print(paste( !is.null(df) , is.data.frame(df) , nrow(df) > 0 , !is.null(input$col_selection)))
+      NULL
     }
   })
+  
+  output$table <- renderDT({
+    table_out()
+  })
+  
+  output$downloadImage <- downloadHandler(
+    filename = function() {
+      paste0("rug-rooster", Sys.Date(), paste0(encodeForURL(paste(input$courses, collapse = "||"))), ".png")
+    },
+    content = function(file) {
+      isExporting(TRUE)
+      # Temporarily save the table as an HTML file
+      tempFile <- tempfile(fileext = ".html")
+      saveWidget(table_out(), tempFile, selfcontained = TRUE)
+      
+      # Use webshot to convert the HTML to PNG
+      webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
+      isExporting(FALSE)
+    }
+  )
 }
