@@ -113,7 +113,7 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
         full_df <- data.frame(id = 0, course = input$courses[i], error = '<i><font style="color:red">invalid course</font></i>')
         next
       } else {
-        response <- GET(url)
+        response <- GET(URLencode(url))
         
         # Check if the request was successful
         if (http_status(response)$category == "Success") {
@@ -444,7 +444,8 @@ server <- function(input, output, session) {
   
   # this is supposed to only trigger on app startup
   # add courses to selectize and pull years
-  observe({ 
+  observe({
+    updateSelectizeInput(session, 'courses',selected =  NULL)
     if (input$output == 'Courses') {
       #print('adding courses and years, that will set year to current')
       years <- fromJSON(content(GET('https://rooster.rug.nl/api/year/all'), "text", encoding = "UTF-8"))$year
@@ -586,6 +587,9 @@ server <- function(input, output, session) {
   table_out <- reactive({
     trigger_trick <- c(input$colorselection, input$fcolorselection)
     df <- df_react()
+    if (is.null(df) || identical(colnames(df), c("id", "course", "error"))) {
+      return(NULL)
+    }
     if (!is.null(input$col_selection) && length(input$col_selection) != length(colnames(df)[colnames(df) != 'id']))  {
       df <- df[, c('id', input$col_selection)]
     }    
