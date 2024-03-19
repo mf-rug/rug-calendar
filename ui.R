@@ -112,7 +112,7 @@ ui <- fluidPage(
               column(12, radioButtons('hl_past', label = 'Past events', selected = 'grey', choices = c('show', 'grey', 'hide'), width='100%', inline = TRUE))
             ), 
             fluidRow(
-              column(12, checkboxInput('unique', 'Group parallel events if identical except location', width = '100%'))
+              column(12, checkboxInput('unique', 'Group parallel events if identical except location', value=TRUE, width = '100%'))
             ), 
             fluidRow(
               column(12, checkboxInput('unique2', 'Group parallel events if only course is unique', width = '100%'))
