@@ -7,6 +7,7 @@ library(jsonlite)
 library(httr)
 library(shinyWidgets)
 library(rvest)
+library(openxlsx)
 
 hrs <- hr(style = "margin-top: 2px; margin-bottom: 15px;")
 hrc <- HTML('<hr style="height:2px;border-width:0;background-color:#08313e;margin-top: 0px; margin-bottom: 0px;">')
@@ -124,7 +125,8 @@ ui <- fluidPage(
                      hrs)
             ),
             fluidRow(
-              column(12, downloadButton("downloadImage", "Download Table as Image"))
+              column(6, downloadButton("downloadXL", "Download as Excel")),
+              column(6, downloadButton("downloadImage", "Download as Image"))
             )
           )
       )

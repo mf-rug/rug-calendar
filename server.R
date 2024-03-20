@@ -262,21 +262,11 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
           result_df <- rbind(result_df, full_df[i, ])
         }
       }
-      # browser()
-      
-      # Reset row names
-      if (cur_sepsel != '') {
-        if (cur_sepsel == 'days') {
-          result_df[is.na(result_df$course), 'date'] <- result_df[which(is.na(result_df$course)) + 1, 'date']
-        } else if (cur_sepsel == 'weeks') {
-          result_df[is.na(result_df$course), 'week'] <- result_df[which(is.na(result_df$course)) + 1, 'week']
-        } else {
-          result_df[is.na(result_df$course), 'date'] <- paste0('<font style="color:black">', result_df[which(is.na(result_df$course)) + 1, 'date'], '</font>') %>% str_replace(., ' ([A-Z][a-z][a-z]) ', ' <font style=\"color:white\">\\1<font style=\"color:black\"> ')
-        }
-      }
+
       if (input$hl_past == 'grey' && 'date' %in% colnames(result_df)) {
         past_events <- as.Date(result_df[!is.na(result_df$course), 'date'], format = '%d %b %Y') < Sys.Date()
         result_df[!is.na(result_df$course), 'day'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'day'][past_events], '</font>')
+        result_df$date2 <- result_df$date
         result_df[!is.na(result_df$course), 'date2'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'date'][past_events], '</font>')
       } else if (input$hl_past == 'hide' && 'date' %in% colnames(result_df)) {
         cur_week <- strftime(Sys.Date(), "%V") %>% as.numeric()
@@ -285,10 +275,10 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
         result_df <- result_df[strftime(as.Date(result_df$date, format = '%d %b %Y'), '%Y') %>% as.numeric() >= cur_year, ]
       }
       
+      # Reset row names
       rownames(result_df) <- NULL
       full_df <- result_df
       #print(paste('parsed course at stage result_df now df of size', ncol(full_df), 'x', nrow(full_df)))
-      cal_url <- paste0('https://www.rug.nl/feb/education/academic-calendar/', year, '-academic-calendar.pdf')
       
       semester_weeks <- read_html('https://www.rug.nl/education/courses/academic-calendar?lang=en')%>% html_table() %>% .[[1]]
       # this will cause a bug after the year 2999 :)
@@ -303,7 +293,6 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
 
       full_df$week2 <- paste0(full_df$week, ' (', week_number, ')')
       
-      # browser()
       wsemester_start <- semester_weeks[semester_weeks$`College-year` == year, "Start semester 2"] %>% as.character() %>% as.Date(., format = '%d-%m-%Y')
       event_dates <- as.Date(full_df$date, format = '%d %b %Y')
       
@@ -311,17 +300,45 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
       days_diff <- as.numeric(event_dates - week_start)
       week_number <- 1 + (days_diff %/% 7)
       
-      full_df[event_dates >= wsemester_start & !is.na(full_df$date), 'week2'] <- paste0(full_df[event_dates >= wsemester_start & !is.na(full_df$date), 'week'], ' (', week_number[event_dates >= wsemester_start & !is.na(full_df$date)], ')')
-      
+      cal_url <- paste0('https://www.rug.nl/feb/education/academic-calendar/', year, '-academic-calendar.pdf')
+      cal_url2 <- 'https://www.rug.nl/education/courses/academic-calendar?lang=en'
+
       # browser()
-      if (http_status(HEAD(cal_url))$category == "Success") {
-        full_df[!is.na(full_df$week),'week'] <- paste0('<a href="', cal_url, '" target="_blank">', full_df[!is.na(full_df$week),'week2'], '</a>')
+      selected_rows <- (event_dates >= wsemester_start & !is.na(full_df$date))
+      if (http_status(HEAD(cal_url))$category == "Success" && http_status(HEAD(cal_url2))$category == "Success") {
+        # browser()
+        full_df[selected_rows, 'week'] <-
+          paste0(
+            paste0('<a href="', cal_url, '" target="_blank">', full_df[selected_rows, 'week'], '</a>'), 
+            ' (', 
+            paste0('<a href="', cal_url2, '" target="_blank">', week_number[selected_rows], '</a>'),
+            ')'
+          )
+      } else {
+        full_df[selected_rows, 'week'] <- paste0(full_df[selected_rows, 'week'], ' (', week_number[selected_rows], ')')
       }
-      full_df[str_detect(full_df$week2, 'NA'), 'week'] <- NA
       
+      if (cur_sepsel != '') {
+        if (cur_sepsel == 'days') {
+          full_df[is.na(full_df$course), 'date'] <- full_df[which(is.na(full_df$course)) + 1, 'date']
+        } else if (cur_sepsel == 'weeks') {
+          full_df[is.na(full_df$course), 'week'] <- full_df[which(is.na(full_df$course)) + 1, 'week']
+        } else {
+          full_df[is.na(full_df$course), 'date'] <- paste0('<font style="color:black">', full_df[which(is.na(full_df$course)) + 1, 'date'], '</font>') %>% str_replace(., ' ([A-Z][a-z][a-z]) ', ' <font style=\"color:white\">\\1<font style=\"color:black\"> ')
+        }
+      }
+      
+      # now that we use date column comparison, exchange for the colored one
+      full_df$date <- full_df$date2
+      
+      # reset ids in case they got messed up
       full_df[!is.na(full_df$course), 'id'] <- 1:nrow(full_df[!is.na(full_df$course),])
+      
+      #add ids to sep rows (subtract 0.1 from row after)
       full_df[which(is.na(full_df$course)), 'id'] <- full_df[which(is.na(full_df$course)) + 1, 'id'] %>% as.numeric() - 0.1
-      full_df <- full_df[!is.na(full_df$id), colnames(full_df)[colnames(full_df) != 'week2']]
+      
+      # remove rows where id is NA (filter remnants) and drop helper columns week2, date2
+      full_df <- full_df[!is.na(full_df$id), colnames(full_df)[!colnames(full_df) %in% c('date2', 'week2')]]
       
       cols <- colnames(df)[colnames(full_df) != 'id']
       if (input$output == 'Courses') {
@@ -341,8 +358,8 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
     
   }
   # }
+
   fdf <<- full_df
-  # full_df <- bfdf[0,]
   #print(paste('parsed course done. returning df of size', ncol(full_df), 'x', nrow(full_df)))
   full_df
 }
@@ -687,7 +704,7 @@ server <- function(input, output, session) {
   
   output$downloadImage <- downloadHandler(
     filename = function() {
-      paste0("rug-rooster", Sys.Date(), paste0(encodeForURL(paste(input$courses, collapse = "||"))), ".png")
+      paste0("rug-rooster", Sys.Date(), paste0(encodeForURL(paste(input$courses, collapse = "_+_"))), ".png")
     },
     content = function(file) {
       isExporting(TRUE)
@@ -698,6 +715,33 @@ server <- function(input, output, session) {
       # Use webshot to convert the HTML to PNG
       webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
       isExporting(FALSE)
+    }
+  )
+  
+  output$downloadXL <- downloadHandler(
+    filename = function() {
+      paste0("rug-rooster_", Sys.Date(), '_', paste0(encodeForURL(paste(input$courses, collapse = "_+_"))), ".xlsx")
+    },
+    content = function(file) {
+      df <- df_react()
+      col <- colnames(df)
+      col <- col[!col %in% c('id', 'week', 'date')][1]
+      df <- df[!is.na(df[,col]),]
+      df <- apply(df, 2, function(x) {
+        str_replace_all(x, '<[^>]*>', '')
+      }) %>% as.data.frame()
+      
+      # Create a new workbook
+      wb <- createWorkbook()
+      addWorksheet(wb, "rooster")
+      writeData(wb, sheet = 1, df)
+      boldStyle <- createStyle(textDecoration = "bold", border = 'bottom', borderColour = 'black')
+      addStyle(wb, sheet = 1, style = boldStyle, rows = 1, cols = 1:ncol(df), gridExpand = TRUE)
+      setColWidths(wb, sheet = 1, cols = 1:ncol(df), widths = "auto")
+      freezePane(wb, sheet = 1, firstRow = TRUE)
+      
+      # Save to the specified file path
+      saveWorkbook(wb, file, overwrite = TRUE)
     }
   )
 }
