@@ -318,6 +318,13 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
         full_df[selected_rows, 'week'] <- paste0(full_df[selected_rows, 'week'], ' (', week_number[selected_rows], ')')
       }
       
+      # now that we use date column comparison, exchange for the colored one
+      # browser()
+      col <- colnames(full_df)
+      col <- col[!col %in% c('id', 'week', 'date')][1]
+      # full_df[is.na(full_df[,col]), 'date'] <- str_replace_all(full_df[is.na(full_df[,col]), 'date2'], '<[^>]*>', '')
+      
+      # and then add info in sep rows
       if (cur_sepsel != '') {
         if (cur_sepsel == 'days') {
           full_df[is.na(full_df$course), 'date'] <- full_df[which(is.na(full_df$course)) + 1, 'date']
@@ -327,9 +334,8 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
           full_df[is.na(full_df$course), 'date'] <- paste0('<font style="color:black">', full_df[which(is.na(full_df$course)) + 1, 'date'], '</font>') %>% str_replace(., ' ([A-Z][a-z][a-z]) ', ' <font style=\"color:white\">\\1<font style=\"color:black\"> ')
         }
       }
+      full_df[!is.na(full_df[,col]), 'date'] <- full_df[!is.na(full_df[,col]), 'date2']
       
-      # now that we use date column comparison, exchange for the colored one
-      full_df$date <- full_df$date2
       
       # reset ids in case they got messed up
       full_df[!is.na(full_df$course), 'id'] <- 1:nrow(full_df[!is.na(full_df$course),])
