@@ -277,40 +277,56 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
       if (input$hl_past == 'grey' && 'date' %in% colnames(result_df)) {
         past_events <- as.Date(result_df[!is.na(result_df$course), 'date'], format = '%d %b %Y') < Sys.Date()
         result_df[!is.na(result_df$course), 'day'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'day'][past_events], '</font>')
-        result_df[!is.na(result_df$course), 'date'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'date'][past_events], '</font>')
+        result_df[!is.na(result_df$course), 'date2'][past_events] <- paste0('<font style="color:grey">', result_df[!is.na(result_df$course), 'date'][past_events], '</font>')
       } else if (input$hl_past == 'hide' && 'date' %in% colnames(result_df)) {
-        # browser()
-        # last_event_line <- max(which(as.Date(result_df[, 'date'], format = '%d %b %Y') < Sys.Date() & !is.na(result_df[, 'date'])))
-        # browser()
-        # last_event_line <- max(which(is.na(result_df[, 'date']))[which(is.na(result_df[, 'date'])) < last_event_line])
-        # result_df <- result_df[last_event_line:nrow(result_df),]
         cur_week <- strftime(Sys.Date(), "%V") %>% as.numeric()
         cur_year <- strftime(Sys.Date(), "%Y") %>% as.numeric()
         result_df <- result_df[result_df$week >= cur_week, ]
         result_df <- result_df[strftime(as.Date(result_df$date, format = '%d %b %Y'), '%Y') %>% as.numeric() >= cur_year, ]
-        # # remove additional NAs on top
-        # potential_start <- min(which(!is.na(test$week))) -1
-        # if 
       }
       
       rownames(result_df) <- NULL
       full_df <- result_df
       #print(paste('parsed course at stage result_df now df of size', ncol(full_df), 'x', nrow(full_df)))
       cal_url <- paste0('https://www.rug.nl/feb/education/academic-calendar/', year, '-academic-calendar.pdf')
+      
+      semester_weeks <- read_html('https://www.rug.nl/education/courses/academic-calendar?lang=en')%>% html_table() %>% .[[1]]
+      # this will cause a bug after the year 2999 :)
+      semester_weeks$`College-year` <- semester_weeks$`College-year` %>% str_replace('-', '-20')
+      
+      semester_start <- semester_weeks[semester_weeks$`College-year` == year,"Opening Academic Year /Start semester 1"] %>% as.character() %>% as.Date(., format = '%d-%m-%Y')
+      event_dates <- as.Date(full_df$date, format = '%d %b %Y')
+
+      week_start <- semester_start - as.POSIXlt(semester_start)$wday + 1
+      days_diff <- as.numeric(event_dates - week_start)
+      week_number <- 1 + (days_diff %/% 7)
+
+      full_df$week2 <- paste0(full_df$week, ' (', week_number, ')')
+      
+      # browser()
+      wsemester_start <- semester_weeks[semester_weeks$`College-year` == year, "Start semester 2"] %>% as.character() %>% as.Date(., format = '%d-%m-%Y')
+      event_dates <- as.Date(full_df$date, format = '%d %b %Y')
+      
+      week_start <- wsemester_start - as.POSIXlt(wsemester_start)$wday + 1
+      days_diff <- as.numeric(event_dates - week_start)
+      week_number <- 1 + (days_diff %/% 7)
+      
+      full_df[event_dates >= wsemester_start & !is.na(full_df$date), 'week2'] <- paste0(full_df[event_dates >= wsemester_start & !is.na(full_df$date), 'week'], ' (', week_number[event_dates >= wsemester_start & !is.na(full_df$date)], ')')
+      
       # browser()
       if (http_status(HEAD(cal_url))$category == "Success") {
-        full_df[!is.na(full_df$week),'week'] <- paste0('<a href="', cal_url, '" target="_blank">', full_df[!is.na(full_df$week),'week'], '</a>')
+        full_df[!is.na(full_df$week),'week'] <- paste0('<a href="', cal_url, '" target="_blank">', full_df[!is.na(full_df$week),'week2'], '</a>')
       }
+      full_df[str_detect(full_df$week2, 'NA'), 'week'] <- NA
       
       full_df[!is.na(full_df$course), 'id'] <- 1:nrow(full_df[!is.na(full_df$course),])
       full_df[which(is.na(full_df$course)), 'id'] <- full_df[which(is.na(full_df$course)) + 1, 'id'] %>% as.numeric() - 0.1
-      full_df <- full_df[!is.na(full_df$id),]
+      full_df <- full_df[!is.na(full_df$id), colnames(full_df)[colnames(full_df) != 'week2']]
       
       cols <- colnames(df)[colnames(full_df) != 'id']
       if (input$output == 'Courses') {
         updateVirtualSelect('col_selection', choices = cols, selected = firstcols[firstcols != 'academic year'])
       } else {
-        print('courses')
         updateVirtualSelect('col_selection', choices = cols, selected = firstcols[!firstcols %in% c('academic year', 'start time', 'end time', 'location', 'day')])
       }
     } else {

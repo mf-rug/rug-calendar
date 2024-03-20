@@ -6,6 +6,7 @@ library(lubridate)
 library(jsonlite)
 library(httr)
 library(shinyWidgets)
+library(rvest)
 
 hrs <- hr(style = "margin-top: 2px; margin-bottom: 15px;")
 hrc <- HTML('<hr style="height:2px;border-width:0;background-color:#08313e;margin-top: 0px; margin-bottom: 0px;">')
