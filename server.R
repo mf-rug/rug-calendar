@@ -1,6 +1,7 @@
 knownGoodValue <- " 22nd Century Economy (300) - CFBGR02705"
 knownGoodValue2 <- " Current Topics in Microeconomics - EBM228A05"
 knownBadValue <- " academic advisement y2"
+senscols <- c('id', 'week', 'day', 'date', 'start time', 'end time', 'course code', 'course', 'info', 'type', 'location', 'parallel sessions', 'staff name', 'academic year')
 
 encodeForURL <- function(string) {
   # Replace '+' with '%2B' first
@@ -309,6 +310,7 @@ parse_course_df <- function(input, all_course_codes, year, course_names, cur_sep
       if (input$output == 'Courses') {
         updateVirtualSelect('col_selection', choices = cols, selected = firstcols[firstcols != 'academic year'])
       } else {
+        print('courses')
         updateVirtualSelect('col_selection', choices = cols, selected = firstcols[!firstcols %in% c('academic year', 'start time', 'end time', 'location', 'day')])
       }
     } else {
@@ -561,14 +563,21 @@ server <- function(input, output, session) {
     if (!is.null(colnames(df))) {
       shinyjs::show('hideme')
       cols <- colnames(df)[colnames(df) != 'id']
-      if (input$unique) {
+      cols <- intersect(cols, senscols)
+      if (input$unique && !'parallel sessions' %in% cols) {
         cols <- c(cols, 'parallel sessions')
       }
       #print('get sens upon course input')
       get_sensible_sel(df, cols, updatefromURL(), forced = FALSE)
-      updateVirtualSelect('col_selection', choices = cols, selected = cols)
+      if (input$output == "Courses") {
+        updateVirtualSelect('col_selection', choices = cols, selected = cols[cols != 'academic year'])
+      } else {
+        updateVirtualSelect('col_selection', choices = cols, selected = cols[!cols %in% c('academic year', 'start time', 'end time', 'location', 'day')])
+      }
+    } else {
+      shinyjs::hide('hideme')
     }
-  }, priority = 10)
+  }, priority = 10, ignoreNULL = FALSE)
   
   # get the data for the course(s) and process the data frame
   df_react <- reactive({
@@ -606,7 +615,7 @@ server <- function(input, output, session) {
       return(NULL)
     }
     if (!is.null(input$col_selection) && length(input$col_selection) != length(colnames(df)[colnames(df) != 'id']))  {
-      df <- df[, c('id', input$col_selection)]
+      df <- df[, c('id', intersect(input$col_selection, colnames(df)))]
     }    
     if (!is.null(df) && is.data.frame(df) && nrow(df) > 0 ) {
       if (is.null(input$col_selection)) {
