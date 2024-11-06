@@ -69,8 +69,11 @@ ui <- fluidPage(
       fluidRow(
         column(12,
                HTML('<strong>Select academic year</strong>'), hrs,
-               shinyjs::disabled(selectInput('years', NULL, choices = NULL, width='100%'))
-        )
+        ),
+      ),
+      fluidRow(
+        column(6, shinyjs::disabled(selectInput('years', NULL, choices = NULL, width='100%'))),
+        column(6, checkboxInput('concepts', 'include concepts', value = FALSE, width = '100%'))
       ), br(),
       fluidRow(
         column(12,

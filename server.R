@@ -80,8 +80,12 @@ get_academic_year <- function() {
   }
 }
 
-pull_courses <- function(year) {
-  course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year)), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
+pull_courses <- function(year, concepts=FALSE) {
+  if (concepts) {
+    course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year, '?includeConcept=true')), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
+  } else { 
+    course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year)), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
+  }
   course.df$name$nl <- str_remove_all(trimws(course.df$name$nl), '[\r\n]')
   course.df <- course.df[!is.na(course.df$name$en) & !is.na(course.df$name$nl),]
   course.df$name_code <- paste0(course.df$name$nl, ' - ', course.df$code)
@@ -465,7 +469,7 @@ server <- function(input, output, session) {
       } else {
         if (input$output == 'Courses') {
           #print('input$years changed and is not year init, lets get to work and change courses')
-          courses_pulled <- pull_courses(input$years)
+          courses_pulled <- pull_courses(input$years, concepts = input$concepts)
           courses_pulled_df <- data.table::data.table('start typing to filter courses' = courses_pulled[[1]])
           course <- input$courses
           if (!is_valid(course) || !all(course %in% courses_pulled[[1]])) {
@@ -506,7 +510,7 @@ server <- function(input, output, session) {
       first_year_init(TRUE)
       updateSelectInput(session, 'years', choices = c('current', years), selected = 'current')
       shinyjs::enable('years')
-      courses_pulled <- pull_courses(get_academic_year())
+      courses_pulled <- pull_courses(get_academic_year(), concepts = input$concepts)
       courses_pulled_df <- data.table::data.table('start typing to filter courses' = courses_pulled[[1]])
       updateSelectizeInput(session, 'courses', choices = courses_pulled_df, options = list(placeholder = 'start typing course name or code'), server = FALSE)
       shinyjs::enable('courses')
