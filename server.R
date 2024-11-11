@@ -3,28 +3,6 @@ knownGoodValue2 <- " Current Topics in Microeconomics - EBM228A05"
 knownBadValue <- " academic advisement y2"
 senscols <- c('id', 'week', 'day', 'date', 'start time', 'end time', 'course code', 'course', 'info', 'type', 'location', 'parallel sessions', 'staff name', 'academic year')
 
-# webshot with auto install
-webshot_chk_install <- function(tempFile, file) {
-  withCallingHandlers(
-    {
-      # try the webshot
-      print('uh')
-      webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
-    },
-    message = function(m) {
-      print('x')
-      if (grepl("PhantomJS not found", m$message)) {
-        message("PhantomJS not found. Installing it now...")
-        webshot::install_phantomjs()
-        message("PhantomJS installed. Re-running the task...")
-        # Retry the operation after installation
-        webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
-        invokeRestart("muffleMessage")  # Prevent the message from showing again
-      }
-    }
-  )
-}
-
 encodeForURL <- function(string) {
   # Replace '+' with '%2B' first
   string <- gsub("\\+", "%2B", string, fixed = TRUE)
@@ -103,11 +81,13 @@ get_academic_year <- function() {
 }
 
 pull_courses <- function(year, concepts=FALSE) {
+  course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year)), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
   if (concepts) {
-    course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year, '?includeConcept=true')), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
-  } else { 
-    course.df <- fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year)), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
-  }
+    course.df <- row_bind(
+      course.df,
+      fromJSON(content(GET(paste0('https://rooster.rug.nl/api/course/', year, '?includeConcept=true')), "text", encoding = "UTF-8")) %>% unnest(cols = c(), keep_empty = TRUE, names_sep = '_') %>% as.data.frame()
+    )
+  } 
   course.df$name$nl <- str_remove_all(trimws(course.df$name$nl), '[\r\n]')
   course.df <- course.df[!is.na(course.df$name$en) & !is.na(course.df$name$nl),]
   course.df$name_code <- paste0(course.df$name$nl, ' - ', course.df$code)
@@ -744,8 +724,22 @@ server <- function(input, output, session) {
       tempFile <- tempfile(fileext = ".html")
       saveWidget(table_out(), tempFile, selfcontained = TRUE)
       
-      # Use webshot to convert the HTML to PNG
-      webshot_chk_install(tempFile, file = file)
+      # Inject custom CSS for the desired font into the HTML file
+      html_content <- readLines(tempFile)
+      font_css <- paste(
+        '<style>',
+        '@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap");',
+        'body { font-family: "Roboto", sans-serif; }',
+        '</style>'
+      )
+      html_content <- sub(
+        "(<head>)",
+        paste0("\\1\n", font_css),
+        html_content
+      )
+      writeLines(html_content, tempFile)
+      
+      webshot(url = paste0("file:///", normalizePath(tempFile)), file = file)
       isExporting(FALSE)
     }
   )
