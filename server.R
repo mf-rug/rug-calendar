@@ -3,6 +3,28 @@ knownGoodValue2 <- " Current Topics in Microeconomics - EBM228A05"
 knownBadValue <- " academic advisement y2"
 senscols <- c('id', 'week', 'day', 'date', 'start time', 'end time', 'course code', 'course', 'info', 'type', 'location', 'parallel sessions', 'staff name', 'academic year')
 
+# webshot with auto install
+webshot_chk_install <- function(tempFile, file) {
+  withCallingHandlers(
+    {
+      # try the webshot
+      print('uh')
+      webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
+    },
+    message = function(m) {
+      print('x')
+      if (grepl("PhantomJS not found", m$message)) {
+        message("PhantomJS not found. Installing it now...")
+        webshot::install_phantomjs()
+        message("PhantomJS installed. Re-running the task...")
+        # Retry the operation after installation
+        webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
+        invokeRestart("muffleMessage")  # Prevent the message from showing again
+      }
+    }
+  )
+}
+
 encodeForURL <- function(string) {
   # Replace '+' with '%2B' first
   string <- gsub("\\+", "%2B", string, fixed = TRUE)
@@ -723,7 +745,7 @@ server <- function(input, output, session) {
       saveWidget(table_out(), tempFile, selfcontained = TRUE)
       
       # Use webshot to convert the HTML to PNG
-      webshot(tempFile, file = file, delay = 0.2, zoom=2)  # delay may need adjustment
+      webshot_chk_install(tempFile, file = file)
       isExporting(FALSE)
     }
   )
